@@ -1,0 +1,25 @@
+{
+  "name": "remix-oauth2-lite",
+  "version": "0.1.0",
+  "description": "",
+  "main": "build/index.js",
+  "scripts": {
+    "build": "tsc --project tsconfig.json"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bitcomplete/remix-oauth2-lite.git"
+  },
+  "author": "",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/bitcomplete/remix-oauth2-lite/issues"
+  },
+  "homepage": "https://github.com/bitcomplete/remix-oauth2-lite#readme",
+  "dependencies": {
+    "@remix-run/server-runtime": "^1.7.0"
+  },
+  "devDependencies": {
+    "@types/node": "^18.7.13"
+  }
+}
