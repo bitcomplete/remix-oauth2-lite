@@ -13,6 +13,7 @@ interface OAuth2Options {
   tokenUrl: string;
   clientId: string;
   clientSecret: string;
+  scope?: string;
 }
 
 export class OAuth2 {
@@ -20,6 +21,7 @@ export class OAuth2 {
   tokenUrl: string;
   clientId: string;
   clientSecret: string;
+  scope?: string;
   sessionStorage: SessionStorage;
 
   constructor(sessionStorage: SessionStorage, options: OAuth2Options) {
@@ -28,6 +30,7 @@ export class OAuth2 {
     this.clientId = options.clientId;
     this.clientSecret = options.clientSecret;
     this.sessionStorage = sessionStorage;
+    this.scope = options.scope;
   }
 
   async loader(args: DataFunctionArgs) {
@@ -134,6 +137,9 @@ export class OAuth2 {
     authParams.set("client_id", this.clientId);
     authParams.set("redirect_uri", this.getCallbackUrl(request, params).toString());
     authParams.set("state", state);
+    if (this.scope) {
+      authParams.set("scope", this.scope);
+    }
     const authUrl = new URL(this.authorizationUrl);
     authUrl.search = authParams.toString();
 
