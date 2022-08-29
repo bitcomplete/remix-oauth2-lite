@@ -1,6 +1,6 @@
 {
   "name": "remix-oauth2-lite",
-  "version": "0.2.1",
+  "version": "0.2.5",
   "description": "",
   "exports": {
     ".": "./build/index.js",
@@ -13,6 +13,9 @@
       ]
     }
   },
+  "files": [
+    "build"
+  ],
   "scripts": {
     "build": "tsc --project tsconfig.json"
   },
