@@ -8,7 +8,19 @@ export type User = {
   email: string;
 };
 
+interface Provider {
+  name: string;
+  loader(args: AuthRouteArgs): Promise<any>;
+  action(args: AuthRouteArgs): Promise<any>;
+}
+
+interface AuthRouteArgs extends DataFunctionArgs {
+  route: string;
+  sessionStorage: SessionStorage;
+}
+
 interface OAuth2Options {
+  name?: string;
   authorizationUrl: string;
   tokenUrl: string;
   clientId: string;
@@ -16,43 +28,46 @@ interface OAuth2Options {
   scope?: string;
 }
 
-export class OAuth2 {
+export class OAuth2Provider implements Provider {
+  name: string;
   authorizationUrl: string;
   tokenUrl: string;
   clientId: string;
   clientSecret: string;
   scope?: string;
-  sessionStorage: SessionStorage;
 
-  constructor(sessionStorage: SessionStorage, options: OAuth2Options) {
+  constructor(options: OAuth2Options) {
+    this.name = options.name || "oauth2";
     this.authorizationUrl = options.authorizationUrl;
     this.tokenUrl = options.tokenUrl;
     this.clientId = options.clientId;
     this.clientSecret = options.clientSecret;
-    this.sessionStorage = sessionStorage;
     this.scope = options.scope;
   }
 
-  async loader(args: DataFunctionArgs) {
-    const { request } = args;
-    const url = new URL(request.url);
-    if (url.pathname.endsWith("/callback")) {
-      return await this.callbackLoader(args);
-    } else if (url.pathname.endsWith("/login")) {
-      return await this.loginLoader(args);
-    } else if (url.pathname.endsWith("/logout")) {
-      return await this.logoutLoader(args);
+  async loader(args: AuthRouteArgs) {
+    const { route } = args;
+    switch (route) {
+      case "callback":
+        return await this.callbackLoader(args);
+      case "login":
+        return await this.loginLoader(args);
+      default:
+        throw new Response("Not Found", { status: 404 });
     }
+  }
+
+  async action(args: AuthRouteArgs) {
     throw new Response("Not Found", { status: 404 });
   }
 
-  private async callbackLoader({ request, params }: DataFunctionArgs) {
+  private async callbackLoader({ sessionStorage, request, params }: AuthRouteArgs) {
     const queryParams = new URL(request.url).searchParams;
     let stateUrl = queryParams.get("state");
     if (!stateUrl) {
       throw new Response("Missing state on URL", { status: 400 });
     }
-    let session = await this.sessionStorage.getSession(request.headers.get("Cookie"));
+    let session = await sessionStorage.getSession(request.headers.get("Cookie"));
     let stateSession = session.get("state");
     if (!stateSession) {
       throw new Response("Missing state on session", { status: 400 });
@@ -102,7 +117,7 @@ export class OAuth2 {
 
     return redirect(queryParams.get("redirectUrl") || "/", {
       headers: {
-        "Set-Cookie": await this.sessionStorage.commitSession(session, {
+        "Set-Cookie": await sessionStorage.commitSession(session, {
           // TODO: Refresh the access token using the refresh token if it expires.
           // For now we simply expire the session.
           expires: new Date(Date.now() + expiresIn * 1000),
@@ -111,22 +126,8 @@ export class OAuth2 {
     });
   }
 
-  async assertIsLoggedIn(request: Request) {
-    const session = await this.sessionStorage.getSession(request.headers.get("Cookie"));
-    const user = session.get("user") as User;
-    if (!user) {
-      throw redirect("/");
-    }
-    return user;
-  }
-
-  async isLoggedIn(request: Request) {
-    const session = await this.sessionStorage.getSession(request.headers.get("Cookie"));
-    return !!session.get("user");
-  }
-
-  private async loginLoader({ request, params }: DataFunctionArgs) {
-    const session = await this.sessionStorage.getSession(
+  private async loginLoader({ sessionStorage, request, params }: AuthRouteArgs) {
+    const session = await sessionStorage.getSession(
       request.headers.get("Cookie")
     );
     const state = randomBytes(16).toString("hex");
@@ -144,8 +145,60 @@ export class OAuth2 {
     authUrl.search = authParams.toString();
 
     throw redirect(authUrl.toString(), {
-      headers: { "Set-Cookie": await this.sessionStorage.commitSession(session) },
+      headers: { "Set-Cookie": await sessionStorage.commitSession(session) },
     });
+  }
+
+  private getCallbackUrl(request: Request, params: Params<string>) {
+    const url = new URL(request.url);
+    const pathSuffix = params["*"] || "";
+    const pathPrefix = url.pathname.substring(
+      0,
+      url.pathname.length - pathSuffix.length
+    );
+    const callbackUrl = new URL(`${pathPrefix}/${this.name}/callback`, url);
+    const redirectUrl = url.searchParams.get("redirectUrl");
+    if (redirectUrl) {
+      callbackUrl.searchParams.set("redirectUrl", redirectUrl);
+    }
+    return callbackUrl;
+  }
+}
+
+export class Auth {
+  sessionStorage: SessionStorage;
+  providers: { [key: string]: Provider };
+
+  constructor(sessionStorage: SessionStorage, providers: Provider[]) {
+    this.sessionStorage = sessionStorage;
+    this.providers = Object.fromEntries(providers.map((provider) => [provider.name, provider]));
+  }
+
+  async loader(args: DataFunctionArgs) {
+    const {provider, route} = this.getProviderAndRoute(args.request);
+    if (route === "logout") {
+      return this.logoutLoader(args);
+    }
+    return provider.loader({ ...args, route, sessionStorage: this.sessionStorage });
+  }
+
+  async action(args: DataFunctionArgs) {
+    const {provider, route} = this.getProviderAndRoute(args.request);
+    return provider.action({ ...args, route, sessionStorage: this.sessionStorage });
+  }
+
+  async assertIsLoggedIn(request: Request) {
+    const session = await this.sessionStorage.getSession(request.headers.get("Cookie"));
+    const user = session.get("user") as User;
+    if (!user) {
+      throw redirect("/");
+    }
+    return user;
+  }
+
+  async isLoggedIn(request: Request) {
+    const session = await this.sessionStorage.getSession(request.headers.get("Cookie"));
+    return !!session.get("user");
   }
 
   private async logoutLoader({ request }: DataFunctionArgs) {
@@ -157,18 +210,17 @@ export class OAuth2 {
     });
   }
 
-  private getCallbackUrl(request: Request, params: Params<string>) {
-    const url = new URL(request.url);
-    const pathSuffix = params["*"] || "";
-    const pathPrefix = url.pathname.substring(
-      0,
-      url.pathname.length - pathSuffix.length
-    );
-    const callbackUrl = new URL(pathPrefix + "callback", url);
-    const redirectUrl = url.searchParams.get("redirectUrl");
-    if (redirectUrl) {
-      callbackUrl.searchParams.set("redirectUrl", redirectUrl);
+  private getProviderAndRoute(request: Request) {
+    const url = new URL(request.url)
+    const parts = url.pathname.split("/");
+    const [route, providerName] = parts.reverse();
+    if (!providerName || !route) {
+      throw new Response("Not Found", { status: 404 });
     }
-    return callbackUrl;
+    const provider = this.providers[providerName];
+    if (!provider) {
+      throw new Response("Not Found", { status: 404 });
+    }
+    return { provider, route };
   }
 }
