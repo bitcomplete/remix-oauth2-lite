@@ -1,11 +1,13 @@
-import { DataFunctionArgs, redirect, SessionStorage } from "@remix-run/server-runtime";
-import { Provider } from "./providers";
+import { DataFunctionArgs, redirect, SessionStorage, Session, AppData } from "@remix-run/server-runtime";
+import { isResponse } from "@remix-run/server-runtime/dist/responses";
+import { json } from "@remix-run/node";
+import { Provider, User } from "./providers";
 
-export type User = {
-  accessToken: string;
-  refreshToken: string;
-  email: string;
-};
+export { User };
+
+export interface AuthenticatedCallback {
+  (user: User): Promise<Response> | Response | Promise<AppData> | AppData
+}
 
 export class Auth {
   sessionStorage: SessionStorage;
@@ -17,42 +19,89 @@ export class Auth {
   }
 
   async loader(args: DataFunctionArgs) {
-    const {provider, route} = this.getProviderAndRoute(args.request);
-    if (route === "logout") {
+    const {provider, routeArgs} = this.getProviderAndRouteArgs(args);
+    if (routeArgs.route === "logout") {
       return this.logoutLoader(args);
     }
-    return provider.loader({ ...args, route, sessionStorage: this.sessionStorage });
+    return provider.loader(routeArgs);
   }
 
   async action(args: DataFunctionArgs) {
-    const {provider, route} = this.getProviderAndRoute(args.request);
-    return provider.action({ ...args, route, sessionStorage: this.sessionStorage });
+    const {provider, routeArgs} = this.getProviderAndRouteArgs(args);
+    return provider.action(routeArgs);
   }
 
-  async assertIsLoggedIn(request: Request) {
+  async authenticated(request: Request, cb: AuthenticatedCallback) {
+    return await this.maybeAuthenticated(request, async (user) => {
+      if (!user) {
+        throw redirect("/");
+      }
+      return cb(user);
+    })
+  }
+
+  async maybeAuthenticated(request: Request, cb: AuthenticatedCallback) {
     const session = await this.sessionStorage.getSession(request.headers.get("Cookie"));
-    const user = session.get("user") as User;
-    if (!user) {
-      throw redirect("/");
+    const providerName = session.get("provider");
+    const sessionUser = session.get("user");
+    let updatedUser, provider;
+    if (providerName) {
+      provider = this.providers[providerName];
+      if (provider && sessionUser) {
+        await provider.authenticate(sessionUser, async (user) => {
+          updatedUser = user;
+        });
+      }
     }
-    return user;
-  }
-
-  async isLoggedIn(request: Request) {
-    const session = await this.sessionStorage.getSession(request.headers.get("Cookie"));
-    return !!session.get("user");
+    const user = updatedUser || sessionUser;
+    let result;
+    try {
+      result = await cb(user);
+    } catch (error) {
+      if (!isResponse(error)) {
+        throw error;
+      }
+      result = error;
+    }
+    let response: Response;
+    if (result instanceof Promise) {
+      result = await result;
+    }
+    if (isResponse(result)) {
+      response = result;
+    } else {
+      response = json(result);
+    }
+    let shouldCommitSession = false;
+    if (providerName && (!provider || !user)) {
+      // The user has been logged out or the session is otherwise invalid so
+      // clear it.
+      session.unset("provider");
+      session.unset("user");
+      shouldCommitSession = true;
+    } else if (updatedUser) {
+      session.set("user", updatedUser);
+      shouldCommitSession = true;
+    }
+    if (shouldCommitSession) {
+      response.headers.append("Set-Cookie", await this.sessionStorage.commitSession(session));
+    }
+    return response;
   }
 
   private async logoutLoader({ request }: DataFunctionArgs) {
-    let session = await this.sessionStorage.getSession(request.headers.get("Cookie"));
-    const params = new URL(request.url).searchParams;
-    const redirectUrl = params.get("redirectUrl") || "/";
-    throw redirect(redirectUrl, {
-      headers: { "Set-Cookie": await this.sessionStorage.destroySession(session) },
-    });
+      const session = await this.sessionStorage.getSession(request.headers.get("Cookie"));
+      session.unset("provider");
+      session.unset("user");
+      const params = new URL(request.url).searchParams;
+      const redirectUrl = params.get("redirectUrl") || "/";
+      throw redirect(redirectUrl, {
+        headers: { "Set-Cookie": await this.sessionStorage.commitSession(session) },
+      });
   }
 
-  private getProviderAndRoute(request: Request) {
+  private getProviderAndRouteArgs(args: DataFunctionArgs) {
+    const { request } = args;
     const url = new URL(request.url)
     const parts = url.pathname.split("/");
     const [route, providerName] = parts.reverse();
@@ -63,6 +112,12 @@ export class Auth {
     if (!provider) {
       throw new Response("Not Found", { status: 404 });
     }
-    return { provider, route };
+    const commitSession = async (user: User) => {
+      const session = await this.sessionStorage.getSession(request.headers.get("Cookie"));
+      session.set("provider", providerName);
+      session.set("user", user);
+      return await this.sessionStorage.commitSession(session);
+    }
+    return { provider, routeArgs: { ...args, route, commitSession } };
   }
 }

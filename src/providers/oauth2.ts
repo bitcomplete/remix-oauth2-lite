@@ -1,6 +1,7 @@
-import { redirect } from "@remix-run/server-runtime";
+import { Cookie, redirect } from "@remix-run/server-runtime";
+import { createCookie } from "@remix-run/node";
 import { randomBytes } from "crypto";
-import { AuthRouteArgs, Provider } from ".";
+import { AuthRouteArgs, Provider, User } from ".";
 import { Params } from "react-router";
 
 interface OAuth2Options {
@@ -12,6 +13,19 @@ interface OAuth2Options {
   scope?: string;
 }
 
+interface Token {
+  access_token: string;
+  refresh_token?: string;
+  expires_in: number;
+  email: string;
+  [key: string]: unknown;
+}
+
+interface ProviderState {
+  expiresAt: number;
+  token: Token;
+}
+
 class OAuth2Provider implements Provider {
   name: string;
   authorizationUrl: string;
@@ -19,6 +33,7 @@ class OAuth2Provider implements Provider {
   clientId: string;
   clientSecret: string;
   scope?: string;
+  stateCookie: Cookie;
 
   constructor(options: OAuth2Options) {
     this.name = options.name || "oauth2";
@@ -27,6 +42,12 @@ class OAuth2Provider implements Provider {
     this.clientId = options.clientId;
     this.clientSecret = options.clientSecret;
     this.scope = options.scope;
+    this.stateCookie = createCookie(`remix-oauth2-lite-${this.name}-state`, {
+      httpOnly: true,
+      maxAge: 60 * 5,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+    });
   }
 
   async loader(args: AuthRouteArgs) {
@@ -45,77 +66,76 @@ class OAuth2Provider implements Provider {
     throw new Response("Not Found", { status: 404 });
   }
 
-  private async callbackLoader({ sessionStorage, request, params }: AuthRouteArgs) {
+  async authenticate(user: User, setUser: (user: User | null) => void) {
+    const state = user.providerState as ProviderState;
+    if (new Date() < new Date(state.expiresAt - 60 * 5 * 1000)) {
+      return;
+    }
+    const {refresh_token: refreshToken} = state.token;
+    if (!refreshToken) {
+      setUser(null);
+      return;
+    }
+    console.log("refreshing token");
+    const token = await this.fetchToken({
+      grant_type: "refresh_token",
+      refresh_token: refreshToken,
+    })
+    console.log("got", token);
+    setUser({
+      accessToken: token.access_token,
+      email: token.email,
+      providerState: {
+        expiresAt: Date.now() + token.expires_in * 1000,
+        token,
+      }
+    });
+  }
+
+  private async callbackLoader({ request, params, commitSession }: AuthRouteArgs) {
     const queryParams = new URL(request.url).searchParams;
     let stateUrl = queryParams.get("state");
     if (!stateUrl) {
       throw new Response("Missing state on URL", { status: 400 });
     }
-    let session = await sessionStorage.getSession(request.headers.get("Cookie"));
-    let stateSession = session.get("state");
-    if (!stateSession) {
+    const stateCookieValue = await this.stateCookie.parse(request.headers.get("Cookie"));
+    if (!stateCookieValue) {
       throw new Response("Missing state on session", { status: 400 });
     }
-    if (stateSession !== stateUrl) {
+    if (stateCookieValue !== stateUrl) {
       throw new Response("State doesn't match", { status: 400 });
     }
-    session.unset("state");
     let code = queryParams.get("code");
     if (!code) {
       throw new Response("Missing code", { status: 400 });
     }
 
-    let tokenParams = new URLSearchParams();
-    tokenParams.set("grant_type", "authorization_code");
-    tokenParams.set("redirect_uri", this.getCallbackUrl(request, params).toString());
-    tokenParams.set("client_id", this.clientId);
-    tokenParams.set("client_secret", this.clientSecret);
-    tokenParams.set("code", code);
-
-    const response = await fetch(this.tokenUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: tokenParams,
-    });
-
-    if (!response.ok) {
-      try {
-        const body = await response.text();
-        throw new Response(body, { status: 401 });
-      } catch (error) {
-        throw new Response((error as Error).message, { status: 401 });
-      }
+    let token: Token;
+    try {
+      token = await this.fetchToken({
+        grant_type: "authorization_code",
+        redirect_uri: this.getCallbackUrl(request, params).toString(),
+        code,
+      })
+    } catch (error) {
+      console.error(error);
+      throw new Response("Failed to fetch auth token", { status: 401 });
     }
-
-    const {
-      access_token: accessToken,
-      refresh_token: refreshToken,
-      expires_in: expiresIn,
-      email,
-    } = await response.json();
-    session.set("user", {
-      accessToken,
-      refreshToken,
-      email,
-    });
-
+    const user = {
+      accessToken: token.access_token,
+      email: token.email,
+      providerState: {
+        expiresAt: new Date(Date.now() + token.expires_in * 1000),
+        token,
+      }
+    };
     return redirect(queryParams.get("redirectUrl") || "/", {
-      headers: {
-        "Set-Cookie": await sessionStorage.commitSession(session, {
-          // TODO: Refresh the access token using the refresh token if it expires.
-          // For now we simply expire the session.
-          expires: new Date(Date.now() + expiresIn * 1000),
-        }),
-      },
+      headers: {"Set-Cookie": await commitSession(user)},
     });
   }
 
-  private async loginLoader({ sessionStorage, request, params }: AuthRouteArgs) {
-    const session = await sessionStorage.getSession(
-      request.headers.get("Cookie")
-    );
+  private async loginLoader({ request, params }: AuthRouteArgs) {
     const state = randomBytes(16).toString("hex");
-    session.set("state", state);
 
     let authParams = new URLSearchParams();
     authParams.set("response_type", "code");
@@ -129,7 +149,7 @@ class OAuth2Provider implements Provider {
     authUrl.search = authParams.toString();
 
     throw redirect(authUrl.toString(), {
-      headers: { "Set-Cookie": await sessionStorage.commitSession(session) },
+      headers: {"Set-Cookie": await this.stateCookie.serialize(state)},
     });
   }
 
@@ -140,12 +160,36 @@ class OAuth2Provider implements Provider {
       0,
       url.pathname.length - pathSuffix.length
     );
-    const callbackUrl = new URL(`${pathPrefix}/${this.name}/callback`, url);
+    const callbackUrl = new URL(`${pathPrefix}${this.name}/callback`, url);
     const redirectUrl = url.searchParams.get("redirectUrl");
     if (redirectUrl) {
       callbackUrl.searchParams.set("redirectUrl", redirectUrl);
     }
     return callbackUrl;
+  }
+
+  private async fetchToken(params: {[key: string]: string}): Promise<Token> {
+    let tokenParams = new URLSearchParams();
+    tokenParams.set("client_id", this.clientId);
+    tokenParams.set("client_secret", this.clientSecret);
+    Object.entries(params).forEach(([key, value]) => {
+      tokenParams.set(key, value);
+    })
+    const response = await fetch(this.tokenUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: tokenParams,
+    });
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    const token = await response.json();
+    ['access_token', 'expires_in', 'email'].forEach((key) => {
+      if (!token[key]) {
+        throw new Error(`OAuth token missing ${key}`);
+      }
+    })
+    return token;
   }
 }
 
