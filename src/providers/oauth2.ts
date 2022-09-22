@@ -76,12 +76,10 @@ class OAuth2Provider implements Provider {
       setUser(null);
       return;
     }
-    console.log("refreshing token");
     const token = await this.fetchToken({
       grant_type: "refresh_token",
       refresh_token: refreshToken,
     })
-    console.log("got", token);
     setUser({
       accessToken: token.access_token,
       email: token.email,
