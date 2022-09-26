@@ -76,10 +76,17 @@ class OAuth2Provider implements Provider {
       setUser(null);
       return;
     }
-    const token = await this.fetchToken({
-      grant_type: "refresh_token",
-      refresh_token: refreshToken,
-    })
+    let token;
+    try {
+      token = await this.fetchToken({
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+      })
+    } catch (error) {
+      console.error(error);
+      setUser(null);
+      return;
+    }
     setUser({
       accessToken: token.access_token,
       email: token.email,
@@ -92,23 +99,24 @@ class OAuth2Provider implements Provider {
 
   private async callbackLoader({ request, params, commitSession }: AuthRouteArgs) {
     const queryParams = new URL(request.url).searchParams;
+    const redirectUrl = queryParams.get("redirectUrl") || "/";
     let stateUrl = queryParams.get("state");
     if (!stateUrl) {
-      throw new Response("Missing state on URL", { status: 400 });
+      return redirect(redirectUrl + "?error=missing_state_parameter");
     }
     const stateCookieValue = await this.stateCookie.parse(request.headers.get("Cookie"));
     if (!stateCookieValue) {
-      throw new Response("Missing state on session", { status: 400 });
+      return redirect(redirectUrl + "?error=missing_state_cookie");
     }
     if (stateCookieValue !== stateUrl) {
-      throw new Response("State doesn't match", { status: 400 });
+      return redirect(redirectUrl + "?error=state_mismatch");
     }
     let code = queryParams.get("code");
     if (!code) {
-      throw new Response("Missing code", { status: 400 });
+      return redirect(redirectUrl + "?error=missing_code_parameter");
     }
 
-    let token: Token;
+    let token;
     try {
       token = await this.fetchToken({
         grant_type: "authorization_code",
@@ -117,7 +125,7 @@ class OAuth2Provider implements Provider {
       })
     } catch (error) {
       console.error(error);
-      throw new Response("Failed to fetch auth token", { status: 401 });
+      return redirect(redirectUrl + "?error=token_request_failed");
     }
     const user = {
       accessToken: token.access_token,
@@ -127,7 +135,7 @@ class OAuth2Provider implements Provider {
         token,
       }
     };
-    return redirect(queryParams.get("redirectUrl") || "/", {
+    return redirect(redirectUrl, {
       headers: {"Set-Cookie": await commitSession(user)},
     });
   }

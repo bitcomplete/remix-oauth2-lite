@@ -53,7 +53,7 @@ export class Auth {
         });
       }
     }
-    const user = updatedUser || sessionUser;
+    const user = updatedUser === undefined ? sessionUser : updatedUser;
     let result;
     try {
       result = await cb(user);
