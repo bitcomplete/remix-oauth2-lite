@@ -68,7 +68,9 @@ class OAuth2Provider implements Provider {
 
   async authenticate(user: User, setUser: (user: User | null) => void) {
     const state = user.providerState as ProviderState;
-    if (new Date() < new Date(state.expiresAt - 60 * 5 * 1000)) {
+    // If the token is within 5 minutes of expiry then preemptively refresh it.
+    // This should reduce the chances of it expiring during request processing.
+    if (new Date() < new Date(state.expiresAt - 5 * 60 * 1000)) {
       return;
     }
     const {refresh_token: refreshToken} = state.token;
