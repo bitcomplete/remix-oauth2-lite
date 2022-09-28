@@ -13,7 +13,7 @@ interface OAuth2Options {
   scope?: string;
 }
 
-interface Token {
+export interface Token {
   access_token: string;
   refresh_token?: string;
   expires_in: number;
@@ -21,9 +21,15 @@ interface Token {
   [key: string]: unknown;
 }
 
+export interface UserInfo {
+  email: string;
+  [key: string]: unknown;
+}
+
 interface ProviderState {
   expiresAt: number;
   token: Token;
+  userInfo: UserInfo;
 }
 
 class OAuth2Provider implements Provider {
@@ -89,12 +95,14 @@ class OAuth2Provider implements Provider {
       setUser(null);
       return;
     }
+    const userInfo = (user.providerState as ProviderState).userInfo;
     setUser({
       accessToken: token.access_token,
-      email: token.email,
+      email: userInfo.email,
       providerState: {
         expiresAt: Date.now() + token.expires_in * 1000,
         token,
+        userInfo,
       }
     });
   }
@@ -124,17 +132,26 @@ class OAuth2Provider implements Provider {
         grant_type: "authorization_code",
         redirect_uri: this.getCallbackUrl(request, params).toString(),
         code,
-      })
+      });
     } catch (error) {
       console.error(error);
       return redirect(redirectUrl + "?error=token_request_failed");
     }
+
+    let userInfo;
+    try {
+      userInfo = await this.fetchUserInfo(token);
+    } catch (error) {
+      console.error(error);
+      return redirect(redirectUrl + "?error=user_info_request_failed");
+    }
     const user = {
       accessToken: token.access_token,
-      email: token.email,
+      email: userInfo.email,
       providerState: {
-        expiresAt: new Date(Date.now() + token.expires_in * 1000),
+        expiresAt: Date.now() + token.expires_in * 1000,
         token,
+        userInfo,
       }
     };
     return redirect(redirectUrl, {
@@ -176,7 +193,7 @@ class OAuth2Provider implements Provider {
     return callbackUrl;
   }
 
-  private async fetchToken(params: {[key: string]: string}): Promise<Token> {
+  protected async fetchToken(params: {[key: string]: string}): Promise<Token> {
     let tokenParams = new URLSearchParams();
     tokenParams.set("client_id", this.clientId);
     tokenParams.set("client_secret", this.clientSecret);
@@ -192,12 +209,20 @@ class OAuth2Provider implements Provider {
       throw new Error(await response.text());
     }
     const token = await response.json();
-    ['access_token', 'expires_in', 'email'].forEach((key) => {
+    ['access_token', 'expires_in'].forEach((key) => {
       if (!token[key]) {
         throw new Error(`OAuth token missing ${key}`);
       }
     })
     return token;
+  }
+
+  protected async fetchUserInfo(token: Token): Promise<UserInfo> {
+    const { email } = token;
+    if (!email) {
+      throw new Error("OAuth2 token missing email");
+    }
+    return { email };
   }
 }
 

@@ -43,7 +43,7 @@ export class Auth {
   async maybeAuthenticated(request: Request, cb: AuthenticatedCallback) {
     const session = await this.sessionStorage.getSession(request.headers.get("Cookie"));
     const providerName = session.get("provider");
-    const sessionUser = session.get("user");
+    const sessionUser = session.get("user") || null;
     let updatedUser, provider;
     if (providerName) {
       provider = this.providers[providerName];
