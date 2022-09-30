@@ -83,15 +83,13 @@ export const auth = new Auth(sessionStorage, [
 
 ## Generic OAuth2
 
-export const auth = new Auth(sessionStorage, [
-new OAuth2Provider({
-authorizationUrl: `https://some-provider.com/oauth2/authorize`,
-tokenUrl: `https://some-provider.com/oauth2/token`,
-clientId: CLIENT_ID,
-clientSecret: CLIENT_SECRET,
-}),
-]);
-
 ```
-
+export const auth = new Auth(sessionStorage, [
+  new OAuth2Provider({
+    authorizationUrl: `https://some-provider.com/oauth2/authorize`,
+    tokenUrl: `https://some-provider.com/oauth2/token`,
+    clientId: CLIENT_ID,
+    clientSecret: CLIENT_SECRET,
+  }),
+]);
 ```
