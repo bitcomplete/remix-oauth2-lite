@@ -11,6 +11,7 @@ interface GoogleOptions {
   clientId: string;
   clientSecret: string;
   scope: string;
+  redirectUriBase?: string;
 }
 
 class GoogleProvider extends OAuth2Provider implements Provider {

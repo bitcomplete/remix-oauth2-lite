@@ -11,6 +11,7 @@ interface OAuth2Options {
   clientId: string;
   clientSecret: string;
   scope?: string;
+  redirectUriBase?: string;
 }
 
 export interface Token {
@@ -39,6 +40,7 @@ class OAuth2Provider implements Provider {
   clientId: string;
   clientSecret: string;
   scope?: string;
+  redirectUriBase?: string;
   stateCookie: Cookie;
 
   constructor(options: OAuth2Options) {
@@ -48,6 +50,7 @@ class OAuth2Provider implements Provider {
     this.clientId = options.clientId;
     this.clientSecret = options.clientSecret;
     this.scope = options.scope;
+    this.redirectUriBase = options.redirectUriBase;
     this.stateCookie = createCookie(`remix-oauth2-lite-${this.name}-state`, {
       httpOnly: true,
       maxAge: 60 * 5,
@@ -185,7 +188,7 @@ class OAuth2Provider implements Provider {
       0,
       url.pathname.length - pathSuffix.length
     );
-    const callbackUrl = new URL(`${pathPrefix}${this.name}/callback`, url);
+    const callbackUrl = new URL(`${pathPrefix}${this.name}/callback`, this.redirectUriBase || url);
     const redirectUrl = url.searchParams.get("redirectUrl");
     if (redirectUrl) {
       callbackUrl.searchParams.set("redirectUrl", redirectUrl);
