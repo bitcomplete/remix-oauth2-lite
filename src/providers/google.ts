@@ -1,5 +1,5 @@
 import { Provider } from ".";
-import OAuth2Provider, { Token, UserInfo } from "./oauth2";
+import OAuth2Provider, { Token, UserInfo, UserValidator } from "./oauth2";
 
 // TODO: This should use the OpenID Connect protocol [1] including fetching the
 // discovery document, but we instead use older OAuth2 endpoints. They are
@@ -12,6 +12,7 @@ interface GoogleOptions {
   clientSecret: string;
   scope: string;
   redirectUriBase?: string;
+  userValidator?: UserValidator;
 }
 
 class GoogleProvider extends OAuth2Provider implements Provider {
@@ -21,6 +22,7 @@ class GoogleProvider extends OAuth2Provider implements Provider {
       name: options.name || "google",
       authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenUrl: "https://oauth2.googleapis.com/token",
+      userValidator: options.userValidator,
     });
   }
 

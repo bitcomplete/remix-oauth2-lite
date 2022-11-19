@@ -12,6 +12,7 @@ interface OAuth2Options {
   clientSecret: string;
   scope?: string;
   redirectUriBase?: string;
+  userValidator?: UserValidator;
 }
 
 export interface Token {
@@ -33,6 +34,10 @@ interface ProviderState {
   userInfo: UserInfo;
 }
 
+export interface UserValidator {
+  (user: User): Promise<boolean>;
+}
+
 class OAuth2Provider implements Provider {
   name: string;
   authorizationUrl: string;
@@ -42,6 +47,7 @@ class OAuth2Provider implements Provider {
   scope?: string;
   redirectUriBase?: string;
   stateCookie: Cookie;
+  userValidator?: UserValidator;
 
   constructor(options: OAuth2Options) {
     this.name = options.name || "oauth2";
@@ -57,6 +63,7 @@ class OAuth2Provider implements Provider {
       sameSite: "lax",
       secure: process.env.NODE_ENV === "production",
     });
+    this.userValidator = options.userValidator;
   }
 
   async loader(args: AuthRouteArgs) {
@@ -99,15 +106,21 @@ class OAuth2Provider implements Provider {
       return;
     }
     const userInfo = (user.providerState as ProviderState).userInfo;
-    setUser({
+    const updatedUser = {
       accessToken: token.access_token,
       email: userInfo.email,
       providerState: {
         expiresAt: Date.now() + token.expires_in * 1000,
         token,
         userInfo,
-      }
-    });
+      },
+      appState: {},
+    }
+    if (this.userValidator && !await this.userValidator(updatedUser)) {
+      setUser(null);
+      return;
+    }
+    setUser(updatedUser);
   }
 
   private async callbackLoader({ request, params, commitSession }: AuthRouteArgs) {
@@ -155,8 +168,12 @@ class OAuth2Provider implements Provider {
         expiresAt: Date.now() + token.expires_in * 1000,
         token,
         userInfo,
-      }
+      },
+      appState: {},
     };
+    if (this.userValidator && !await this.userValidator(user)) {
+      return redirect(redirectUrl + "?error=invalid_user");
+    }
     return redirect(redirectUrl, {
       headers: {"Set-Cookie": await commitSession(user)},
     });
