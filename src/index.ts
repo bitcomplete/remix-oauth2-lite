@@ -54,7 +54,7 @@ export class Auth {
       }
     }
     const user = updatedUser === undefined ? sessionUser : updatedUser;
-    let result;
+    let result, shouldThrow = false;
     try {
       result = await cb(user);
     } catch (error) {
@@ -62,6 +62,7 @@ export class Auth {
         throw error;
       }
       result = error;
+      shouldThrow = true;
     }
     let response: Response;
     if (result instanceof Promise) {
@@ -85,6 +86,9 @@ export class Auth {
     }
     if (shouldCommitSession) {
       response.headers.append("Set-Cookie", await this.sessionStorage.commitSession(session));
+    }
+    if (shouldThrow) {
+      throw response;
     }
     return response;
   }
