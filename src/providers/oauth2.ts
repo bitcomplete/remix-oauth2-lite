@@ -111,7 +111,12 @@ class OAuth2Provider implements Provider {
       email: userInfo.email,
       providerState: {
         expiresAt: Date.now() + token.expires_in * 1000,
-        token,
+        token: {
+          ...token,
+          // If we're given a new refresh token, store that. Otherwise retain
+          // the original one.
+          refresh_token: token.refresh_token || refreshToken,
+        },
         userInfo,
       },
       appState: {},
@@ -191,6 +196,10 @@ class OAuth2Provider implements Provider {
       authParams.set("scope", this.scope);
     }
     const authUrl = new URL(this.authorizationUrl);
+    // Include query params from the authorization URL given by the provider.
+    authUrl.searchParams.forEach((value, key) => {
+      authParams.set(key, value);
+    });
     authUrl.search = authParams.toString();
 
     throw redirect(authUrl.toString(), {

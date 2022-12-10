@@ -20,7 +20,7 @@ class GoogleProvider extends OAuth2Provider implements Provider {
     super({
       ...options,
       name: options.name || "google",
-      authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth?prompt=consent&access_type=offline",
       tokenUrl: "https://oauth2.googleapis.com/token",
       userValidator: options.userValidator,
     });
