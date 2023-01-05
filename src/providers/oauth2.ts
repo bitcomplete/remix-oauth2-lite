@@ -184,7 +184,7 @@ class OAuth2Provider implements Provider {
     });
   }
 
-  private async loginLoader({ request, params }: AuthRouteArgs) {
+  async loginLoader({ request, params }: AuthRouteArgs, forcedScope?: string) {
     const state = randomBytes(16).toString("hex");
 
     let authParams = new URLSearchParams();
@@ -192,7 +192,9 @@ class OAuth2Provider implements Provider {
     authParams.set("client_id", this.clientId);
     authParams.set("redirect_uri", this.getCallbackUrl(request, params).toString());
     authParams.set("state", state);
-    if (this.scope) {
+    if (forcedScope) {
+      authParams.set("scope", forcedScope)
+    } else if (this.scope) {
       authParams.set("scope", this.scope);
     }
     const authUrl = new URL(this.authorizationUrl);
