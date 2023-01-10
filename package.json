@@ -1,6 +1,6 @@
 {
   "name": "remix-oauth2-lite",
-  "version": "0.3.11",
+  "version": "0.3.12",
   "description": "",
   "exports": {
     ".": "./build/index.js",
