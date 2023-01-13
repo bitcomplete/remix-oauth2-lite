@@ -130,7 +130,7 @@ class OAuth2Provider implements Provider {
 
   private async callbackLoader({ request, params, commitSession }: AuthRouteArgs) {
     const queryParams = new URL(request.url).searchParams;
-    const redirectUrl = queryParams.get("redirectUrl") || "/";
+    let redirectUrl = queryParams.get("redirectUrl") || "/";
     let stateUrl = queryParams.get("state");
     if (!stateUrl) {
       return redirect(redirectUrl + "?error=missing_state_parameter");
@@ -142,6 +142,12 @@ class OAuth2Provider implements Provider {
     if (stateCookieValue !== stateUrl) {
       return redirect(redirectUrl + "?error=state_mismatch");
     }
+
+    const [_, forcedRedirect] = stateUrl.split(",")
+    if (forcedRedirect) {
+      redirectUrl = forcedRedirect
+    }
+
     let code = queryParams.get("code");
     if (!code) {
       return redirect(redirectUrl + "?error=missing_code_parameter");
@@ -184,9 +190,11 @@ class OAuth2Provider implements Provider {
     });
   }
 
-  async loginLoader({ request, params }: AuthRouteArgs, forcedScope?: string) {
-    const state = randomBytes(16).toString("hex");
-
+  async loginLoader({ request, params }: AuthRouteArgs, forcedScope?: string, forcedRedirect?: string) {
+    let state = randomBytes(16).toString("hex");
+    if (forcedRedirect) {
+     state = state+","+forcedRedirect;
+    }
     let authParams = new URLSearchParams();
     authParams.set("response_type", "code");
     authParams.set("client_id", this.clientId);
