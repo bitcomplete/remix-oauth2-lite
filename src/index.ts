@@ -1,4 +1,4 @@
-import { DataFunctionArgs, redirect, SessionStorage, Session, AppData } from "@remix-run/server-runtime";
+import { DataFunctionArgs, redirect, SessionStorage, Session } from "@remix-run/server-runtime";
 import { isResponse } from "@remix-run/server-runtime/dist/responses";
 import { json } from "@remix-run/node";
 import { Provider, User } from "./providers";
@@ -6,7 +6,7 @@ import { Provider, User } from "./providers";
 export { User };
 
 export interface AuthenticatedCallback {
-  (user: User): Promise<Response> | Response | Promise<AppData> | AppData
+  (user: User): Promise<Response> | Response | Promise<any> | any
 }
 
 export class Auth {

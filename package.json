@@ -1,6 +1,6 @@
 {
-  "name": "remix-oauth2-lite",
-  "version": "0.3.14",
+  "name": "remix-oauth2-lite-local",
+  "version": "0.3.15",
   "description": "",
   "exports": {
     ".": "./build/index.js",
@@ -30,10 +30,12 @@
   },
   "homepage": "https://github.com/bitcomplete/remix-oauth2-lite#readme",
   "dependencies": {
-    "@remix-run/node": "^1.7.1",
-    "@remix-run/server-runtime": "^1.7.0"
+    "@remix-run/node": "^2.8.1",
+    "@remix-run/react": "^2.8.1",
+    "@remix-run/server-runtime": "^2.8.1"
   },
   "devDependencies": {
-    "@types/node": "^18.7.13"
+    "@types/node": "^20.11.24",
+    "typescript": "^5.3.3"
   }
 }

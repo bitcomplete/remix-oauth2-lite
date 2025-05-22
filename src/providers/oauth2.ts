@@ -2,7 +2,6 @@ import { Cookie, redirect } from "@remix-run/server-runtime";
 import { createCookie } from "@remix-run/node";
 import { randomBytes } from "crypto";
 import { AuthRouteArgs, Provider, User } from ".";
-import { Params } from "react-router";
 
 interface OAuth2Options {
   name?: string;
@@ -217,7 +216,7 @@ class OAuth2Provider implements Provider {
     });
   }
 
-  private getCallbackUrl(request: Request, params: Params<string>) {
+  private getCallbackUrl(request: Request, params: Record<string, string | undefined>) {
     const url = new URL(request.url);
     const pathSuffix = params["*"] || "";
     const pathPrefix = url.pathname.substring(
