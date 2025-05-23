@@ -1,41 +1,18 @@
 import { Cookie, redirect } from "@remix-run/server-runtime";
 import { createCookie } from "@remix-run/node";
 import { randomBytes } from "crypto";
-import { AuthRouteArgs, Provider, User } from ".";
-import { Params } from "react-router";
+import { AuthRouteArgs, Provider, User, Token, UserInfo, ProviderState, UserValidator } from "../types";
 
 interface OAuth2Options {
   name?: string;
   authorizationUrl: string;
   tokenUrl: string;
   clientId: string;
-  clientSecret: string;
+  clientSecret?: string;
   scope?: string;
   redirectUriBase?: string;
   userValidator?: UserValidator;
-}
-
-export interface Token {
-  access_token: string;
-  refresh_token?: string;
-  expires_in: number;
-  email: string;
-  [key: string]: unknown;
-}
-
-export interface UserInfo {
-  email: string;
-  [key: string]: unknown;
-}
-
-interface ProviderState {
-  expiresAt: number;
-  token: Token;
-  userInfo: UserInfo;
-}
-
-export interface UserValidator {
-  (user: User): Promise<boolean>;
+  isPublicClient?: boolean;
 }
 
 class OAuth2Provider implements Provider {
@@ -43,11 +20,12 @@ class OAuth2Provider implements Provider {
   authorizationUrl: string;
   tokenUrl: string;
   clientId: string;
-  clientSecret: string;
+  clientSecret?: string;
   scope?: string;
   redirectUriBase?: string;
   stateCookie: Cookie;
   userValidator?: UserValidator;
+  isPublicClient: boolean;
 
   constructor(options: OAuth2Options) {
     this.name = options.name || "oauth2";
@@ -57,6 +35,7 @@ class OAuth2Provider implements Provider {
     this.clientSecret = options.clientSecret;
     this.scope = options.scope;
     this.redirectUriBase = options.redirectUriBase;
+    this.isPublicClient = options.isPublicClient || false;
     this.stateCookie = createCookie(`remix-oauth2-lite-${this.name}-state`, {
       httpOnly: true,
       maxAge: 60 * 5,
@@ -66,7 +45,7 @@ class OAuth2Provider implements Provider {
     this.userValidator = options.userValidator;
   }
 
-  async loader(args: AuthRouteArgs) {
+  async loader(args: AuthRouteArgs): Promise<Response> {
     const { route } = args;
     switch (route) {
       case "callback":
@@ -78,7 +57,7 @@ class OAuth2Provider implements Provider {
     }
   }
 
-  async action(args: AuthRouteArgs) {
+  async action(args: AuthRouteArgs): Promise<Response> {
     throw new Response("Not Found", { status: 404 });
   }
 
@@ -119,7 +98,7 @@ class OAuth2Provider implements Provider {
         },
         userInfo,
       },
-      appState: {},
+      appState: user.appState,
     }
     if (this.userValidator && !await this.userValidator(updatedUser)) {
       setUser(null);
@@ -190,7 +169,7 @@ class OAuth2Provider implements Provider {
     });
   }
 
-  async loginLoader({ request, params }: AuthRouteArgs, forcedScope?: string, forcedRedirect?: string) {
+  async loginLoader({ request, params }: AuthRouteArgs, forcedScope?: string, forcedRedirect?: string): Promise<Response> {
     let state = randomBytes(16).toString("hex");
     if (forcedRedirect) {
      state = state+","+forcedRedirect;
@@ -217,7 +196,7 @@ class OAuth2Provider implements Provider {
     });
   }
 
-  private getCallbackUrl(request: Request, params: Params<string>) {
+  private getCallbackUrl(request: Request, params: Record<string, string | undefined>) {
     const url = new URL(request.url);
     const pathSuffix = params["*"] || "";
     const pathPrefix = url.pathname.substring(
@@ -235,7 +214,9 @@ class OAuth2Provider implements Provider {
   protected async fetchToken(params: {[key: string]: string}): Promise<Token> {
     let tokenParams = new URLSearchParams();
     tokenParams.set("client_id", this.clientId);
-    tokenParams.set("client_secret", this.clientSecret);
+    if (this.clientSecret && !this.isPublicClient) {
+      tokenParams.set("client_secret", this.clientSecret);
+    }
     Object.entries(params).forEach(([key, value]) => {
       tokenParams.set(key, value);
     })

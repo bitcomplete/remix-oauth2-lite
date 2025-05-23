@@ -1,21 +1,23 @@
-import { DataFunctionArgs, redirect, SessionStorage, Session, AppData } from "@remix-run/server-runtime";
+import { DataFunctionArgs, redirect, SessionStorage, Session } from "@remix-run/server-runtime";
 import { isResponse } from "@remix-run/server-runtime/dist/responses";
 import { json } from "@remix-run/node";
-import { Provider, User } from "./providers";
+import { Provider, User, AuthConfig, AuthRouteArgs } from "./types";
 
-export { User };
+export { User, Provider, AuthConfig, AuthRouteArgs };
 
 export interface AuthenticatedCallback {
-  (user: User): Promise<Response> | Response | Promise<AppData> | AppData
+  (user: User): Promise<Response> | Response | Promise<any> | any
 }
 
 export class Auth {
-  sessionStorage: SessionStorage;
-  providers: { [key: string]: Provider };
+  private sessionStorage: SessionStorage;
+  private providers: { [key: string]: Provider };
+  private defaultRedirectUrl: string;
 
-  constructor(sessionStorage: SessionStorage, providers: Provider[]) {
-    this.sessionStorage = sessionStorage;
-    this.providers = Object.fromEntries(providers.map((provider) => [provider.name, provider]));
+  constructor(config: AuthConfig) {
+    this.sessionStorage = config.sessionStorage;
+    this.providers = Object.fromEntries(config.providers.map((provider) => [provider.name, provider]));
+    this.defaultRedirectUrl = config.defaultRedirectUrl || "/";
   }
 
   async loader(args: DataFunctionArgs) {
@@ -34,7 +36,7 @@ export class Auth {
   async authenticated(request: Request, cb: AuthenticatedCallback) {
     return await this.maybeAuthenticated(request, async (user) => {
       if (!user) {
-        throw redirect("/");
+        throw redirect(this.defaultRedirectUrl);
       }
       return cb(user);
     })
@@ -94,14 +96,14 @@ export class Auth {
   }
 
   private async logoutLoader({ request }: DataFunctionArgs) {
-      const session = await this.sessionStorage.getSession(request.headers.get("Cookie"));
-      session.unset("provider");
-      session.unset("user");
-      const params = new URL(request.url).searchParams;
-      const redirectUrl = params.get("redirectUrl") || "/";
-      throw redirect(redirectUrl, {
-        headers: { "Set-Cookie": await this.sessionStorage.commitSession(session) },
-      });
+    const session = await this.sessionStorage.getSession(request.headers.get("Cookie"));
+    session.unset("provider");
+    session.unset("user");
+    const params = new URL(request.url).searchParams;
+    const redirectUrl = params.get("redirectUrl") || this.defaultRedirectUrl;
+    throw redirect(redirectUrl, {
+      headers: { "Set-Cookie": await this.sessionStorage.commitSession(session) },
+    });
   }
 
   private getProviderAndRouteArgs(args: DataFunctionArgs) {
