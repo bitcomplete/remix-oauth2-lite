@@ -1,10 +1,18 @@
 {
-  "name": "remix-oauth2-lite-local",
+  "name": "remix-oauth2-lite",
   "version": "0.3.15",
-  "description": "",
+  "description": "A lightweight OAuth2 authentication library for Remix",
   "exports": {
-    ".": "./build/index.js",
-    "./providers/*": "./build/providers/*.js"
+    ".": {
+      "types": "./build/index.d.ts",
+      "import": "./build/index.js",
+      "require": "./build/index.cjs"
+    },
+    "./providers/*": {
+      "types": "./build/providers/*.d.ts",
+      "import": "./build/providers/*.js",
+      "require": "./build/providers/*.cjs"
+    }
   },
   "typesVersions": {
     "*": {
@@ -17,7 +25,9 @@
     "build"
   ],
   "scripts": {
-    "build": "tsc"
+    "build": "tsc && tsc -p tsconfig.cjs.json",
+    "test": "jest",
+    "test:watch": "jest --watch"
   },
   "repository": {
     "type": "git",
@@ -31,11 +41,17 @@
   "homepage": "https://github.com/bitcomplete/remix-oauth2-lite#readme",
   "dependencies": {
     "@remix-run/node": "^2.8.1",
-    "@remix-run/react": "^2.8.1",
     "@remix-run/server-runtime": "^2.8.1"
   },
   "devDependencies": {
+    "@types/jest": "^29.5.12",
     "@types/node": "^20.11.24",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.2",
     "typescript": "^5.3.3"
+  },
+  "peerDependencies": {
+    "@remix-run/node": "^2.0.0",
+    "@remix-run/server-runtime": "^2.0.0"
   }
 }

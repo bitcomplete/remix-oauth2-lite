@@ -1,5 +1,6 @@
 import { Provider } from ".";
-import OAuth2Provider, { Token, UserInfo, UserValidator } from "./oauth2";
+import OAuth2Provider from "./oauth2";
+import { Token, UserInfo, UserValidator } from "../types";
 
 // TODO: This should use the OpenID Connect protocol [1] including fetching the
 // discovery document, but we instead use older OAuth2 endpoints. They are
